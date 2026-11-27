@@ -2,9 +2,9 @@
 
 use std::{fs, os::unix::fs::PermissionsExt, path::Path, time::Instant};
 
+use deck_adapters::{Invocation, adapters, run_supervised};
+use deck_core::{AdapterKind, AgentEvent};
 use tempfile::tempdir;
-use teracode_adapters::{Invocation, adapters, run_supervised};
-use teracode_core::{AdapterKind, AgentEvent};
 use tokio::time::Duration;
 use tokio_util::sync::CancellationToken;
 
@@ -15,7 +15,7 @@ fn script(path: &Path, contents: &str) {
     fs::set_permissions(path, permissions).unwrap();
 }
 
-fn codex_adapter() -> Box<dyn teracode_adapters::AgentAdapter> {
+fn codex_adapter() -> Box<dyn deck_adapters::AgentAdapter> {
     adapters()
         .into_iter()
         .find(|adapter| adapter.kind() == AdapterKind::Codex)

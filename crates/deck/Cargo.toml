@@ -1,6 +1,6 @@
 [package]
-name = "teracode-core"
-description = "Domain contracts and orchestration engine for TeraCode"
+name = "deck"
+description = "One local CLI for your deck of coding agents — deal the best hand for every job"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,17 +8,23 @@ authors.workspace = true
 repository.workspace = true
 publish = false
 
+[[bin]]
+name = "deck"
+path = "src/main.rs"
+
 [dependencies]
 async-trait.workspace = true
-directories.workspace = true
-rusqlite.workspace = true
-schemars.workspace = true
+clap.workspace = true
+crossterm.workspace = true
+ratatui.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-thiserror.workspace = true
+deck-adapters = { path = "../deck-adapters" }
+deck-core = { path = "../deck-core" }
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]

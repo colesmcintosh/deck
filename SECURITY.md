@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-TeraCode is pre-1.0. Security fixes are applied to the latest code on `main` and the latest `0.1.x` release when applicable.
+Deck is pre-1.0. Security fixes are applied to the latest code on `main` and the latest `0.1.x` release when applicable.
 
 ## Reporting a vulnerability
 

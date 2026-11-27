@@ -80,6 +80,20 @@ pub enum RoutingObjective {
 
 impl RoutingObjective {
     pub const ALL: [Self; 4] = [Self::Balanced, Self::Quality, Self::Speed, Self::Cost];
+
+    /// Ranks a card or adapter from configured tiers.
+    ///
+    /// One point on the named objective outranks the secondary tiers. Those tiers are small
+    /// integers, typically 1–5. A higher cost tier means a less expensive option.
+    pub fn score_tiers(self, quality: i32, speed: i32, cost: i32) -> i32 {
+        const PRIMARY_TIER_WEIGHT: i32 = 32;
+        match self {
+            Self::Balanced => quality + speed + cost,
+            Self::Quality => quality * PRIMARY_TIER_WEIGHT + speed + cost,
+            Self::Speed => speed * PRIMARY_TIER_WEIGHT + quality,
+            Self::Cost => cost * PRIMARY_TIER_WEIGHT + quality,
+        }
+    }
 }
 
 impl fmt::Display for RoutingObjective {

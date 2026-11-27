@@ -1,6 +1,6 @@
 ## Outcome
 
-Describe the user-visible change and why it belongs in TeraCode.
+Describe the user-visible change and why it belongs in Deck.
 
 ## Safety and compatibility
 

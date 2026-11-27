@@ -1,5 +1,5 @@
-use teracode_adapters::parse_normalized_event;
-use teracode_core::{AdapterKind, AgentEvent};
+use deck_adapters::parse_normalized_event;
+use deck_core::{AdapterKind, AgentEvent};
 
 #[test]
 fn recorded_provider_streams_are_forward_compatible() {

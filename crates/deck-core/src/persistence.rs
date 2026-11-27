@@ -48,7 +48,7 @@ pub struct HistoryStore {
 
 impl HistoryStore {
     pub fn open_default() -> Result<Self, PersistenceError> {
-        let directories = ProjectDirs::from("dev", "teracode", "TeraCode")
+        let directories = ProjectDirs::from("dev", "deck", "Deck")
             .ok_or(PersistenceError::NoApplicationDirectory)?;
         let data_dir = directories.data_dir();
         fs::create_dir_all(data_dir).map_err(|source| PersistenceError::CreateDirectory {

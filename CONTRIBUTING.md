@@ -1,6 +1,6 @@
-# Contributing to TeraCode
+# Contributing to Deck
 
-Thanks for helping improve TeraCode. Changes should keep the orchestrator local-first, provider-neutral, explicit about dangerous permissions, and safe to exercise without paid model calls in default CI.
+Thanks for helping improve Deck. Changes should keep the router local-first, provider-neutral, explicit about dangerous permissions, and safe to exercise without paid model calls in default CI.
 
 ## Development setup
 
@@ -13,7 +13,7 @@ cargo test --workspace --locked
 cargo build --workspace --release --locked
 ```
 
-Keep changes focused and include tests for observable behavior. Default tests must use fixtures, temporary repositories, or fake executables. Never add a test that invokes a paid provider unless it is ignored and gated by `TERACODE_LIVE_TESTS=1`.
+Keep changes focused and include tests for observable behavior. Default tests must use fixtures, temporary repositories, or fake executables. Never add a test that invokes a paid provider unless it is ignored and gated by `DECK_LIVE_TESTS=1`.
 
 ## Adapter changes
 

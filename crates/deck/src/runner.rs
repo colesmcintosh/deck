@@ -1,8 +1,8 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;
-use teracode_adapters::{AgentAdapter, InvocationContext, ProcessEvent, adapters, run_supervised};
-use teracode_core::{
+use deck_adapters::{AgentAdapter, InvocationContext, ProcessEvent, adapters, run_supervised};
+use deck_core::{
     AgentEvent, AgentProfile, AgentState, AutonomyPolicy, CheckResult, GoalSpec, RunState,
     ScheduleError, TaskExecution, TaskKind, TaskNode, TaskRunner, TeamPlan, WorkspaceManager,
     WorkspacePolicy, WorkspaceSet, execute_plan, run_acceptance_checks,
@@ -74,7 +74,7 @@ async fn execute_factory_inner(
         .repository
         .parent()
         .unwrap_or(&goal.repository)
-        .join(".teracode-worktrees");
+        .join(".deck-worktrees");
     let manager = WorkspaceManager::new(goal.repository.clone(), worktree_root, run_id);
     let policy = goal
         .workspace_policy
