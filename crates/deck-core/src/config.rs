@@ -437,7 +437,7 @@ mod tests {
         assert_eq!(config.retention, RetentionPolicy::KeepForever);
         assert_eq!(config.decision_router.endpoint, DEFAULT_DECISIONS_ENDPOINT);
         assert!(config.decision_router.model.is_none());
-        assert!(config.cards.is_empty());
+        assert_eq!(config.cards.len(), 0);
     }
 
     #[test]
