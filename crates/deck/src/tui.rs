@@ -14,6 +14,13 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
+use deck_adapters::{ProbeReadiness, ProbeResult};
+use deck_core::{
+    AcceptanceCommand, AdapterCandidate, AdapterKind, AgentEvent, AgentState, AutonomyPolicy,
+    DealtHand, DecisionRouterStatus, DeckConfig, FactoryBlueprint, GoalSpec, HandDecisionSummary,
+    HistoryStore, ProviderPreference, RecommendationEngine, RepositoryStatus, RoutingObjective,
+    RunState, SkillIndex, TeamPlan, WorkspacePolicy, deal_hand_with_decisions, validate_plan,
+};
 use ratatui::{
     Frame, Terminal,
     backend::CrosstermBackend,
@@ -21,13 +28,6 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
-};
-use teracode_adapters::{ProbeReadiness, ProbeResult};
-use teracode_core::{
-    AcceptanceCommand, AdapterCandidate, AdapterKind, AgentEvent, AgentState, AutonomyPolicy,
-    FactoryBlueprint, GoalSpec, HistoryStore, ProviderPreference, RecommendationEngine,
-    RepositoryStatus, RoutingObjective, RunState, SkillIndex, TeamPlan, TeraCodeConfig,
-    WorkspacePolicy, validate_plan,
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -135,7 +135,10 @@ pub struct App {
     cancellation: Option<CancellationToken>,
     launch_area: Rect,
     history: HistoryStore,
-    config: TeraCodeConfig,
+    config: DeckConfig,
+    decision_model_override: Option<String>,
+    dealing: bool,
+    hand_summary: Option<HandDecisionSummary>,
     history_rows: Vec<serde_json::Value>,
 }
 
@@ -145,7 +148,8 @@ impl App {
         probes: Vec<ProbeResult>,
         skills: SkillIndex,
         history: HistoryStore,
-        config: TeraCodeConfig,
+        config: DeckConfig,
+        decision_model_override: Option<String>,
         ascii: bool,
     ) -> Self {
         let mut goal = GoalSpec::new(repository.path.clone());
@@ -173,7 +177,7 @@ impl App {
             editing_check_args: false,
             check_args_buffer: String::new(),
             dangerous_confirmed: false,
-            message: "Inspect the line, then press Enter to configure a factory.".into(),
+            message: "Inspect your deck, then press Enter to deal a hand.".into(),
             task_states: HashMap::new(),
             logs: VecDeque::new(),
             outcome: None,
@@ -184,6 +188,9 @@ impl App {
             launch_area: Rect::default(),
             history,
             config,
+            decision_model_override,
+            dealing: false,
+            hand_summary: None,
             history_rows: Vec::new(),
         }
     }
@@ -196,11 +203,7 @@ impl App {
             .collect()
     }
 
-    fn propose(&mut self) {
-        if self.goal.goal.trim().is_empty() {
-            self.message = "Goal is required before a line can be designed.".into();
-            return;
-        }
+    fn build_candidates(&self) -> Vec<AdapterCandidate> {
         let mut candidates = self
             .probes
             .iter()
@@ -225,16 +228,84 @@ impl App {
                 .position(|adapter| *adapter == candidate.kind)
                 .unwrap_or(usize::MAX)
         });
+        candidates
+    }
+
+    fn propose(&mut self) -> AppAction {
+        if self.dealing {
+            return AppAction::None;
+        }
+        if self.goal.goal.trim().is_empty() {
+            self.message = "Goal is required before a hand can be dealt.".into();
+            return AppAction::None;
+        }
+        let candidates = self.build_candidates();
+        let router_status =
+            DecisionRouterStatus::inspect(&self.config, self.decision_model_override.as_deref());
+        let cards = self.config.effective_cards(&candidates);
+        if router_status.active && cards.len() >= 2 {
+            self.dealing = true;
+            self.message = format!(
+                "DEALING HAND / querying {} ...",
+                router_status
+                    .configured_model
+                    .as_deref()
+                    .unwrap_or("decision model")
+            );
+            return AppAction::Propose;
+        }
+
         let engine = RecommendationEngine;
         let eligible = engine.eligible(&self.goal, &candidates);
         match engine.fallback(&self.goal, &eligible, &self.skills.all()) {
-            Ok(plan) => {
+            Ok(mut plan) => {
+                if let Some(primary) = cards.first() {
+                    for agent in &mut plan.agents {
+                        if agent.adapter == primary.adapter && agent.model.is_none() {
+                            agent.model.clone_from(&primary.model);
+                        }
+                    }
+                }
                 self.plan = Some(plan);
+                self.hand_summary = Some(HandDecisionSummary {
+                    used_decision_model: false,
+                    resolved_model: None,
+                    provider: None,
+                    has_clear_fit: None,
+                    complexity_score: None,
+                    complexity_probabilities: None,
+                    latency_ms: None,
+                    cost_usd: None,
+                    note: if router_status.active {
+                        "Deterministic deal (fewer than two eligible cards in deck).".into()
+                    } else {
+                        "Deterministic deal (configure decision_router.model + OPENROUTER_API_KEY to enable decision routing)."
+                            .into()
+                    },
+                    warnings: Vec::new(),
+                    roles: Vec::new(),
+                });
                 self.stage = Stage::Proposal;
                 self.message =
-                    "Blueprint ready. Edit cells, routing, skills, and quality gates.".into();
+                    "Hand dealt. Edit agents, routing, skills, and quality gates.".into();
             }
             Err(error) => self.message = error.to_string(),
+        }
+        AppAction::None
+    }
+
+    fn handle_hand_dealt(&mut self, result: Result<DealtHand, String>) {
+        self.dealing = false;
+        match result {
+            Ok(dealt) => {
+                self.plan = Some(dealt.plan);
+                self.message.clone_from(&dealt.summary.note);
+                self.hand_summary = Some(dealt.summary);
+                self.stage = Stage::Proposal;
+            }
+            Err(error) => {
+                self.message = format!("Could not deal hand: {error}");
+            }
         }
     }
 
@@ -278,9 +349,9 @@ impl App {
                 .find(|agent| agent.id == task.assigned_agent)?;
             let required = if matches!(
                 task.kind,
-                teracode_core::TaskKind::Analysis | teracode_core::TaskKind::Review
+                deck_core::TaskKind::Analysis | deck_core::TaskKind::Review
             ) || (workspace == WorkspacePolicy::ReadOnlyThenExecutor
-                && task.kind != teracode_core::TaskKind::Integration)
+                && task.kind != deck_core::TaskKind::Integration)
             {
                 AutonomyPolicy::ReadOnly
             } else {
@@ -331,6 +402,17 @@ impl App {
             let _ = self
                 .history
                 .record_probe(Some(run_id), &probe.adapter.to_string(), probe);
+        }
+        if let Some(summary) = &self.hand_summary
+            && let Ok(metadata) = serde_json::to_value(summary)
+        {
+            let _ = self.history.record_artifact(
+                run_id,
+                None,
+                "decision-routing",
+                &self.goal.repository,
+                Some(&metadata),
+            );
         }
         for state in [
             RunState::Planning,
@@ -479,7 +561,7 @@ impl App {
             Stage::Doctor => match key.code {
                 KeyCode::Enter => {
                     self.stage = Stage::Switchboard;
-                    self.message = "Define what this factory must produce.".into();
+                    self.message = "Define your goal to deal the best hand from your deck.".into();
                     AppAction::None
                 }
                 KeyCode::Char('q') => AppAction::Quit,
@@ -600,7 +682,7 @@ impl App {
                 }
                 self.goal.constraints[0].push(character);
             }
-            KeyCode::Enter => self.propose(),
+            KeyCode::Enter => return self.propose(),
             KeyCode::Esc => self.stage = Stage::Doctor,
             _ => {}
         }
@@ -906,7 +988,7 @@ impl App {
             }
             KeyCode::Char('e') => {
                 if let Some(run_id) = self.run_id {
-                    let path = self.goal.repository.join(format!("teracode-{run_id}.json"));
+                    let path = self.goal.repository.join(format!("deck-{run_id}.json"));
                     self.message = match self.history.export_run(run_id, &path) {
                         Ok(()) => format!("Exported {}", path.display()),
                         Err(error) => format!("Export failed: {error}"),
@@ -990,7 +1072,7 @@ impl App {
             self.message = "No historical run is selected.".into();
             return;
         };
-        let path = self.goal.repository.join(format!("teracode-{id}.json"));
+        let path = self.goal.repository.join(format!("deck-{id}.json"));
         self.message = match self.history.export_run(id, &path) {
             Ok(()) => format!("Exported {}", path.display()),
             Err(error) => format!("Export failed: {error}"),
@@ -1072,9 +1154,9 @@ impl App {
 
     fn render_header(&self, frame: &mut Frame, area: Rect) {
         let title = if area.width < 95 {
-            " TERACODE / FACTORY FOUNDRY "
+            " DECK / AGENT ROUTER "
         } else {
-            " TERACODE / THE FACTORY FOR SOFTWARE FACTORIES "
+            " DECK / DEAL THE BEST HAND OF CODING AGENTS "
         };
         frame.render_widget(
             Paragraph::new(Line::from(vec![
@@ -1201,13 +1283,43 @@ impl App {
                 ),
             ]));
         }
+        let router =
+            DecisionRouterStatus::inspect(&self.config, self.decision_model_override.as_deref());
+        lines.push(Line::raw(""));
+        lines.push(Line::from(vec![
+            Span::styled(
+                if router.active { "[OK  ] " } else { "[OFF ] " },
+                Style::default().fg(if router.active {
+                    self.palette.success
+                } else {
+                    self.palette.signal
+                }),
+            ),
+            Span::styled(
+                "Decision Router ",
+                Style::default()
+                    .fg(self.palette.paper)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(format!(
+                "model={}  {}={}  cards={}",
+                router.configured_model.as_deref().unwrap_or("unconfigured"),
+                router.api_key_env,
+                if router.api_key_present {
+                    "set"
+                } else {
+                    "unset"
+                },
+                if router.configured_cards == 0 {
+                    "auto".to_owned()
+                } else {
+                    router.configured_cards.to_string()
+                }
+            )),
+        ]));
         frame.render_widget(
             Paragraph::new(lines)
-                .block(panel(
-                    " DOCTOR / LINE READINESS ",
-                    self.palette.active,
-                    true,
-                ))
+                .block(panel(" DOCTOR / YOUR DECK ", self.palette.active, true))
                 .wrap(Wrap { trim: true }),
             area,
         );
@@ -1287,7 +1399,7 @@ impl App {
         frame.render_widget(
             Paragraph::new(lines)
                 .block(panel(
-                    " SWITCHBOARD / DEFINE THE LINE ",
+                    " SWITCHBOARD / DEAL THE HAND ",
                     self.palette.signal,
                     true,
                 ))
@@ -1305,7 +1417,7 @@ impl App {
             .get(self.selected_skill)
             .map_or("none", |skill| skill.name.as_str());
         let title = format!(
-            " BLUEPRINT / {:?} / e edit · a provider · m model · p prompt · d deps · x agent · s skill ({skill_hint}) · g args · r required · Enter policies ",
+            " HAND / {:?} / e edit · a provider · m model · p prompt · d deps · x agent · s skill ({skill_hint}) · g args · r required · Enter policies ",
             self.proposal_section,
         );
         let items = match self.proposal_section {
@@ -1394,6 +1506,64 @@ impl App {
             ProposalSection::Tasks => self.selected_task,
             ProposalSection::Checks => self.selected_check,
         };
+        let (banner_area, list_area) = if self.hand_summary.is_some() && area.height >= 12 {
+            let split = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(3), Constraint::Min(6)])
+                .split(area);
+            (Some(split[0]), split[1])
+        } else {
+            (None, area)
+        };
+        if let (Some(banner_rect), Some(summary)) = (banner_area, &self.hand_summary) {
+            let banner_color = if summary.used_decision_model {
+                self.palette.success
+            } else {
+                self.palette.signal
+            };
+            let role_snippet = summary
+                .roles
+                .iter()
+                .filter(|role| !role.probabilities.is_empty())
+                .map(|role| {
+                    let top_prob = role
+                        .probabilities
+                        .get(&role.selected_card_id)
+                        .copied()
+                        .unwrap_or(0.0);
+                    format!("{:?}:{}({top_prob:.2})", role.role, role.selected_card_id)
+                })
+                .collect::<Vec<_>>()
+                .join(" · ");
+            let banner_text = if let Some(model) = &summary.resolved_model {
+                let fit = summary
+                    .has_clear_fit
+                    .map_or_else(|| "n/a".into(), |value| format!("{value:.2}"));
+                let complexity = summary
+                    .complexity_score
+                    .map_or_else(|| "n/a".into(), |value| format!("{value:.2}"));
+                let latency = summary
+                    .latency_ms
+                    .map_or_else(String::new, |ms| format!(" · {ms}ms"));
+                if role_snippet.is_empty() {
+                    format!("{model} · fit={fit} · complexity={complexity}{latency}")
+                } else {
+                    format!(
+                        "{model} · fit={fit} · complexity={complexity}{latency} · {role_snippet}"
+                    )
+                }
+            } else {
+                summary.note.clone()
+            };
+            frame.render_widget(
+                Paragraph::new(Line::styled(
+                    banner_text,
+                    Style::default().fg(self.palette.paper),
+                ))
+                .block(panel(" DECISION ROUTER ", banner_color, false)),
+                banner_rect,
+            );
+        }
         let mut state = ListState::default().with_selected(Some(selected));
         frame.render_stateful_widget(
             List::new(items)
@@ -1404,7 +1574,7 @@ impl App {
                         .bg(self.palette.rail)
                         .fg(self.palette.paper),
                 ),
-            area,
+            list_area,
             &mut state,
         );
         if self.editing {
@@ -1472,7 +1642,7 @@ impl App {
         self.launch_area = chunks[1];
         frame.render_widget(
             Paragraph::new(if ready {
-                "[ LAUNCH FACTORY ]  Enter or click"
+                "[ PLAY HAND ]  Enter or click"
             } else {
                 "[ LOCKED ]  Select compatible controls"
             })
@@ -1613,7 +1783,7 @@ impl App {
             Line::raw(""),
             Line::styled(
                 if success {
-                    "Inspect the staged diff in the integration worktree. TeraCode did not merge the starting branch."
+                    "Inspect the staged diff in the integration worktree. Deck did not merge the starting branch."
                 } else {
                     "Artifacts and logs were preserved. Fix the blocker or retry from the policy gate."
                 },
@@ -1657,7 +1827,7 @@ impl App {
         frame.render_stateful_widget(
             List::new(items)
                 .block(panel(
-                    " LOCAL FACTORY HISTORY / ↑↓ SELECT · Enter/r RETRY · e EXPORT · d DELETE · b BACK ",
+                    " LOCAL DECK HISTORY / ↑↓ SELECT · Enter/r RETRY · e EXPORT · d DELETE · b BACK ",
                     self.palette.active,
                     true,
                 ))
@@ -1672,6 +1842,7 @@ impl App {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AppAction {
     None,
+    Propose,
     Launch,
     Quit,
 }
@@ -1684,10 +1855,14 @@ pub fn run(app: &mut App) -> io::Result<()> {
     let mut terminal = Terminal::new(backend)?;
     let _guard = TerminalGuard;
     let (update_tx, mut update_rx) = mpsc::unbounded_channel();
+    let (deal_tx, mut deal_rx) = mpsc::unbounded_channel::<Result<DealtHand, String>>();
 
     loop {
         while let Ok(update) = update_rx.try_recv() {
             app.handle_update(update);
+        }
+        while let Ok(dealt) = deal_rx.try_recv() {
+            app.handle_hand_dealt(dealt);
         }
         terminal.draw(|frame| app.render(frame))?;
         if !event::poll(Duration::from_millis(50))? {
@@ -1703,6 +1878,26 @@ pub fn run(app: &mut App) -> io::Result<()> {
         match action {
             AppAction::None => {}
             AppAction::Quit => break,
+            AppAction::Propose => {
+                let goal = app.goal.clone();
+                let config = app.config.clone();
+                let candidates = app.build_candidates();
+                let skills = app.skills.all();
+                let model_override = app.decision_model_override.clone();
+                let tx = deal_tx.clone();
+                tokio::spawn(async move {
+                    let result = deal_hand_with_decisions(
+                        &goal,
+                        &config,
+                        &candidates,
+                        &skills,
+                        model_override.as_deref(),
+                    )
+                    .await
+                    .map_err(|error| error.to_string());
+                    let _ = tx.send(result);
+                });
+            }
             AppAction::Launch => {
                 if let Some((run_id, goal, plan, dangerous_confirmed, cancellation)) =
                     app.begin_run()
@@ -1868,9 +2063,9 @@ fn discover_acceptance_checks(repository: &std::path::Path) -> Vec<AcceptanceCom
 
 #[cfg(test)]
 mod tests {
+    use deck_core::AdapterCapabilities;
     use ratatui::{Terminal, backend::TestBackend};
     use tempfile::tempdir;
-    use teracode_core::AdapterCapabilities;
 
     use super::*;
 
@@ -1905,7 +2100,8 @@ mod tests {
             }],
             SkillIndex::default(),
             history,
-            TeraCodeConfig::default(),
+            DeckConfig::default(),
+            None,
             true,
         )
     }
@@ -1924,7 +2120,7 @@ mod tests {
                 .iter()
                 .map(ratatui::buffer::Cell::symbol)
                 .collect::<String>();
-            assert!(rendered.contains("TERACODE"));
+            assert!(rendered.contains("DECK"));
             assert!(rendered.contains("DOCTOR"));
         }
     }

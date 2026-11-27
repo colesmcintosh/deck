@@ -143,7 +143,7 @@ impl WorkspaceManager {
         })?;
         let short_id = &self.run_id.simple().to_string()[..12];
         let integration_path = run_root.join("integration");
-        let integration_branch = format!("teracode/{short_id}/integration");
+        let integration_branch = format!("deck/{short_id}/integration");
         git(
             &self.repository,
             &[
@@ -160,7 +160,7 @@ impl WorkspaceManager {
         if policy == WorkspacePolicy::WorktreePerAgent {
             for (index, agent_id) in agent_ids.iter().enumerate() {
                 let path = run_root.join(format!("cell-{}", index + 1));
-                let branch = format!("teracode/{short_id}/cell-{}", index + 1);
+                let branch = format!("deck/{short_id}/cell-{}", index + 1);
                 git(
                     &self.repository,
                     &[

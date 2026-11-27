@@ -1,7 +1,7 @@
 use std::{io, process::ExitStatus, time::Duration};
 
+use deck_core::AgentEvent;
 use serde_json::Value;
-use teracode_core::AgentEvent;
 use thiserror::Error;
 use tokio::{
     io::{AsyncBufReadExt, AsyncRead, BufReader},

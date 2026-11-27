@@ -32,13 +32,12 @@ impl AdapterCandidate {
         let history_bonus = self
             .historical_duration_ms
             .map_or(0, |duration| i32::from(duration < 120_000));
-        let base = match objective {
-            crate::RoutingObjective::Balanced => quality + speed + cost,
-            crate::RoutingObjective::Quality => quality * 3 + speed + cost,
-            crate::RoutingObjective::Speed => speed * 3 + quality + history_bonus,
-            crate::RoutingObjective::Cost => cost * 3 + quality,
+        let speed_history = if objective == crate::RoutingObjective::Speed {
+            history_bonus
+        } else {
+            0
         };
-        base + i32::from(preferred) * 10
+        objective.score_tiers(quality, speed, cost) + speed_history + i32::from(preferred) * 10
     }
 }
 
@@ -488,7 +487,7 @@ fn role_names(team_size: usize) -> Vec<&'static str> {
 
 fn role_prompt(role: &str, goal: &str) -> String {
     format!(
-        "You are the {role} in a TeraCode production line. Work only on your assigned task, preserve repository conventions, communicate through requested artifacts, and verify your work. Factory goal: {goal}"
+        "You are the {role} in a Deck agent hand. Work only on your assigned task, preserve repository conventions, communicate through requested artifacts, and verify your work. Goal: {goal}"
     )
 }
 

@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible TeraCode defect
+description: Report a reproducible Deck defect
 title: "bug: "
 labels: [bug]
 body:
@@ -9,8 +9,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: TeraCode version
-      placeholder: teracode 0.1.0
+      label: Deck version
+      placeholder: deck 0.1.0
     validations:
       required: true
   - type: dropdown
@@ -24,7 +24,7 @@ body:
     id: doctor
     attributes:
       label: Doctor output
-      description: Paste redacted output from `teracode doctor --json`.
+      description: Paste redacted output from `deck doctor --json`.
       render: json
   - type: textarea
     id: reproduction

@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to TeraCode are documented here.
+All notable changes to Deck are documented here.
 
 ## 0.1.0 - 2026-08-17
 

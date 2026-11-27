@@ -1,6 +1,6 @@
 [package]
-name = "teracode-adapters"
-description = "Coding-agent CLI adapters and process supervision for TeraCode"
+name = "deck-core"
+description = "Domain contracts and routing engine for Deck"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,10 +10,12 @@ publish = false
 
 [dependencies]
 async-trait.workspace = true
-nix.workspace = true
+directories.workspace = true
+reqwest.workspace = true
+rusqlite.workspace = true
+schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-teracode-core = { path = "../teracode-core" }
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true

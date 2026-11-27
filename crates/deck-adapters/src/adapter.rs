@@ -1,8 +1,8 @@
 use std::{path::PathBuf, process::Stdio, time::Duration};
 
 use async_trait::async_trait;
+use deck_core::{AdapterCapabilities, AdapterKind, AgentEvent, AgentState, AutonomyPolicy};
 use serde_json::Value;
-use teracode_core::{AdapterCapabilities, AdapterKind, AgentEvent, AgentState, AutonomyPolicy};
 use thiserror::Error;
 use tokio::process::Command;
 
